@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CinemaVault - Your Ultimate Movie Guide</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="navbar">
+        <div class="logo">🎬 CinemaVault</div>
+        <nav class="nav-links">
+            <a href="#" class="active">Home</a>
+            <a href="#" id="loginBtn" class="btn-login">Login</a>
+        </nav>
+    </header>
+
+    <section class="hero">
+        <h1>Welcome to CinemaVault</h1>
+        <p>Explore current movies, showtimes, and book your tickets seamlessly.</p>
+    </section>
+
+    <main class="container">
+        <h2 class="section-title">Now Showing</h2>
+        
+        <div id="movieGrid" class="movie-grid">
+            <div class="loading">Loading movies from database...</div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
