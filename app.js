@@ -11,12 +11,13 @@ const GOOGLE_CLIENT_ID = "479961485296-bc9qtqof14lj1jv3soqs07qqbqi46hoi.apps.goo
 document.addEventListener("DOMContentLoaded", () => {
     console.log("🎬 CinemaVault Frontend Initialized!");
     
-    // 檢查瀏覽器內是否存有上一次登入的 Token
+    // 檢查瀏覽器內是否存有上一次登入的 Token 與頭像狀態
     checkLoginStatus();
     
     // 執行核心功能
     fetchMovies();
     setupAuthEventListeners();
+    setupAvatarUploadEvents(); // 🌟 核心新增：初始化頭像上傳點擊事件
 });
 
 // ==========================================
@@ -126,10 +127,12 @@ function setupAuthEventListeners() {
 
                 if (!res.ok) throw new Error(data.error || "Login failed");
 
-                // 將 JWT 儲存至瀏覽器
+                // 將 JWT 與使用者資料儲存至瀏覽器
                 localStorage.setItem("token", data.token);
                 localStorage.setItem("username", data.user.username);
                 localStorage.setItem("role", data.user.role);
+                // 如果該用戶原本在 SQLite 就有頭像，一併記錄下來
+                localStorage.setItem("profile_photo", data.user.profile_photo || "");
 
                 alert(`👋 Welcome back, ${data.user.username}!`);
                 authModal.style.display = "none";
@@ -164,31 +167,48 @@ function updateAuthModalUI() {
     }
 }
 
-// 檢查並同步瀏覽器的登入狀態到導覽列上
+// 檢查並同步瀏覽器的登入狀態與頭像到導覽列上
 function checkLoginStatus() {
     const token = localStorage.getItem("token");
     const username = localStorage.getItem("username");
     const role = localStorage.getItem("role");
+    const profilePhoto = localStorage.getItem("profile_photo");
 
     const userInfo = document.getElementById("userInfo");
     const loginBtn = document.getElementById("loginBtn");
+    const avatarContainer = document.getElementById("avatarContainer");
+    const userAvatar = document.getElementById("userAvatar");
 
     if (token && username) {
-        userInfo.innerText = `👤 Hello, ${username} (${role.toUpperCase()})`;
+        userInfo.innerText = `Hello, ${username} (${role.toUpperCase()})`;
         loginBtn.innerText = "Logout";
         loginBtn.style.backgroundColor = "#333";
+        
+        // 顯示大頭貼圓圈
+        avatarContainer.style.display = "flex";
+        
+        // 如果 localStorage 有儲存過頭像路徑，把圖片 src 指向本地後端的託管 URL
+        if (profilePhoto) {
+            // 由於後端已經開放了 static 服務，且路徑帶有 /uploads/，我們直接接上後端主網址即可
+            userAvatar.src = `http://localhost:10888${profilePhoto}`;
+        } else {
+            // 沒有頭像時，回復為預設灰色頭像
+            userAvatar.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ccc'><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5-4-8-4z'/></svg>";
+        }
     } else {
         userInfo.innerText = "";
         loginBtn.innerText = "Login";
         loginBtn.style.backgroundColor = "#e50914";
+        avatarContainer.style.display = "none"; // 登出後隱藏大頭貼區
     }
 }
 
-// 處理登出：清除 Token 並重置介面
+// 處理登出：清除 Token 與頭像，並重置介面
 function handleLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     localStorage.removeItem("role");
+    localStorage.removeItem("profile_photo");
     alert("🔒 Logged out successfully!");
     checkLoginStatus();
 }
@@ -216,7 +236,6 @@ async function handleGoogleCredentialResponse(response) {
     console.log("Google ID Token received:", response.credential);
     
     try {
-        // 將 Google 發給我們的憑證，透過 POST 丟回我們的 Koa 後端進行官方驗證
         const res = await fetch(`${API_BASE_URL}/auth/google-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -227,18 +246,80 @@ async function handleGoogleCredentialResponse(response) {
         
         if (!res.ok) throw new Error(data.error || "Google authentication failed");
         
-        // 登入成功！保存我們後端簽發的專屬 JWT 安全通行證
+        // 登入成功！保存我們後端簽發的專屬 JWT 通行證與頭像資訊
         localStorage.setItem("token", data.token);
         localStorage.setItem("username", data.user.username);
-        localStorage.setItem("role", data.user.role); // 後端強制回傳為 'user'
+        localStorage.setItem("role", data.user.role); 
+        localStorage.setItem("profile_photo", data.user.profile_photo || "");
         
         alert(`🎉 Google Login Successful! Welcome, ${data.user.username}`);
         
-        // 關閉 Modal 並更新導覽列狀態
         document.getElementById("authModal").style.display = "none";
         checkLoginStatus();
         
     } catch (err) {
         alert(`❌ Google Auth Error: ${err.message}`);
     }
+}
+
+// ========================================================
+// 4. 🌟 重要功能 (Important): 處理個人大頭貼檔案上傳與即時刷新
+// ========================================================
+function setupAvatarUploadEvents() {
+    const avatarContainer = document.getElementById("avatarContainer");
+    const avatarInput = document.getElementById("avatarInput");
+    const userAvatar = document.getElementById("userAvatar");
+
+    // 點擊圓形大頭貼時，自動觸發隱藏的 file input 點擊
+    avatarContainer.addEventListener("click", () => {
+        avatarInput.click();
+    });
+
+    // 加上滑鼠懸停放大特效（選加，讓使用者體驗更好）
+    avatarContainer.addEventListener("mouseenter", () => { userAvatar.style.transform = "scale(1.1)"; });
+    avatarContainer.addEventListener("mouseleave", () => { userAvatar.style.transform = "scale(1.0)"; });
+
+    // 當使用者在選取視窗選好圖片檔案時觸發
+    avatarInput.addEventListener("change", async () => {
+        const file = avatarInput.files[0];
+        if (!file) return; // 如果沒選任何檔案就直接退出
+
+        // 利用 FormData 打包多媒體檔案
+        const formData = new FormData();
+        formData.append("avatar", file); // ⚠️ 鍵值名稱 "avatar" 必須跟後端 upload.ts 的 upload.single('avatar') 完全對齊！
+
+        // 從瀏覽器取出當前登入使用者的 JWT Token
+        const token = localStorage.getItem("token");
+
+        try {
+            // 發送異步請求上傳至 Koa 後端
+            const response = await fetch(`${API_BASE_URL}/user/profile-photo`, {
+                method: "POST",
+                headers: {
+                    // 🔒 帶上 JWT Token 守衛密鑰，注意：FormData 上傳千萬「不要」手動加 Content-Type Header，瀏覽器會自動生成帶有 boundary 的型態！
+                    "Authorization": `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) throw new Error(data.error || "Failed to upload photo");
+
+            // 上傳成功！更新本地緩存的路徑網址
+            localStorage.setItem("profile_photo", data.photoUrl);
+            
+            // 立即動態刷新導覽列上的大頭貼圖片，實現免重新整理即時刷新
+            userAvatar.src = `http://localhost:10888${data.photoUrl}`;
+            
+            alert("📸 Profile photo updated successfully!");
+
+        } catch (error) {
+            console.error("Upload error:", error);
+            alert(`❌ Upload Failed: ${error.message}`);
+        } finally {
+            // 清空 file input 的值，確保使用者連續選取同一張圖片時依然能重複觸發事件
+            avatarInput.value = "";
+        }
+    });
 }
